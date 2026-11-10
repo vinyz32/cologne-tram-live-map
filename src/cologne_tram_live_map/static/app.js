@@ -135,23 +135,15 @@ function sleep(ms) {
 const LOADING_MESSAGES = [
   {
     text: "lade Schienennetz…",
-    rhythm: { base: 44, jitter: 22, wordPause: 42, punctuationPause: 210, hesitationChance: 0.05 },
+    rhythm: { base: 34, jitter: 16, wordPause: 28, punctuationPause: 120, hesitationChance: 0.025 },
   },
   {
     text: "sortiere Köln nach Linienfarben…",
-    rhythm: { base: 34, jitter: 18, wordPause: 30, punctuationPause: 150, hesitationChance: 0.025 },
-  },
-  {
-    text: "rücke Haltestellen ein paar Pixel zurecht…",
-    rhythm: { base: 58, jitter: 30, wordPause: 65, punctuationPause: 240, hesitationChance: 0.075 },
+    rhythm: { base: 28, jitter: 14, wordPause: 24, punctuationPause: 100, hesitationChance: 0.02 },
   },
   {
     text: "stelle Bahnen aufs Gleis…",
-    rhythm: { base: 39, jitter: 24, wordPause: 36, punctuationPause: 175, hesitationChance: 0.04 },
-  },
-  {
-    text: "entwirre kurz die Innenstadt…",
-    rhythm: { base: 49, jitter: 28, wordPause: 55, punctuationPause: 260, hesitationChance: 0.065 },
+    rhythm: { base: 30, jitter: 16, wordPause: 26, punctuationPause: 110, hesitationChance: 0.025 },
   },
 ];
 
@@ -238,9 +230,9 @@ async function typeLoadingMessage(
 
 async function runLoadingSequence() {
   for (const item of LOADING_MESSAGES) {
-    await sleep(randomBetween(120, 360));
+    await sleep(randomBetween(70, 160));
     await typeLoadingMessage(item.text, item.rhythm);
-    await sleep(randomBetween(1350, 2300));
+    await sleep(randomBetween(320, 620));
   }
 }
 
@@ -248,19 +240,19 @@ async function revealMap() {
   await typeLoadingMessage(
     "fertig. gute fahrt.",
     {
-      base: 52,
-      jitter: 26,
-      wordPause: 72,
-      punctuationPause: 300,
-      hesitationChance: 0.055,
+      base: 34,
+      jitter: 18,
+      wordPause: 38,
+      punctuationPause: 140,
+      hesitationChance: 0.025,
     }
   );
-  await sleep(950);
+  await sleep(320);
 
   mapShellElement.classList.remove("is-loading");
   mapShellElement.classList.add("is-ready");
 
-  await sleep(420);
+  await sleep(180);
 
   if (loadingScreenElement) {
     loadingScreenElement.hidden = true;
@@ -1593,20 +1585,6 @@ function showMapImmediately() {
   setLoadingControlsDisabled(false);
 }
 
-async function waitForFirstMotion(timeoutMs = 22000) {
-  const startedAt = performance.now();
-
-  while (performance.now() - startedAt < timeoutMs) {
-    await sleep(3000);
-    await loadVehicles();
-
-    if (motions.size > 0) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 let appInitialized = false;
 let lastResumeRefreshAt = 0;
@@ -1668,12 +1646,6 @@ async function initializeApp() {
   }
 
   if (shouldShowLoader) {
-    const motionStarted = await waitForFirstMotion();
-
-    if (!motionStarted) {
-      console.warn("No vehicle motion detected before loading timeout.");
-    }
-
     await loadingSequence;
     await revealMap();
 
