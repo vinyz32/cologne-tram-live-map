@@ -208,8 +208,8 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
 
-        # Railway (and other platforms) can probe this endpoint without
-        # triggering HAFAS or contributing to the public-request breaker.
+        # Railway (and other platforms) can probe readiness without
+        # triggering an upstream HAFAS request.
         if path == "/healthz":
             configured = bool(os.environ.get("COLOGNE_TRAM_HAFAS_AID", "").strip())
             self._send_json(
