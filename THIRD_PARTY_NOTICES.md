@@ -39,14 +39,8 @@ distribute a provider access identifier.
 
 This endpoint is not presented here as an official public API contract. Anyone
 running the adapter is responsible for ensuring that their access and usage are
-authorized and compliant with the provider's current terms. The project uses
-backend caching and a hard refresh floor to avoid unnecessary upstream traffic.
-
-For a public hosted or commercial deployment, use an official realtime-data
-arrangement such as the VRS interfaces / GTFS-RT access described by VRS.
-
-- VRS Open Data / OpenService: https://www.vrs.de/fuer-unternehmen/open-data-service
-- KVB open-data notes: https://www.kvb.koeln/service/open_data.html
+authorized and compliant with the provider's current terms. The application
+caches live snapshots to avoid unnecessary upstream traffic.
 
 ## Browser libraries
 
