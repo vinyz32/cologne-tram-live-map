@@ -44,7 +44,7 @@ The backend normalizes and caches both sources, then serves processed data to th
 
 Requires Python 3.11+.
 
-A valid HAFAS access identifier is required for live vehicle data and is not included in this repository.
+A valid HAFAS access identifier is required for live vehicle data and is not included in this repository. Set `COLOGNE_TRAM_HAFAS_AID` in your shell or IDE run configuration before starting the app.
 
 ```bash
 git clone https://github.com/vinyz32/cologne-tram-live-map.git
