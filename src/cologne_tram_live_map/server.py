@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 from datetime import datetime, timezone
 import json
 import logging
@@ -44,16 +43,10 @@ class SnapshotCache:
     def get(
         self,
         force: bool = False,
-        allow_upstream: bool = True,
     ) -> tuple[list[Vehicle], bool, bool]:
         now = time.monotonic()
 
         with self._lock:
-            if not allow_upstream:
-                # Fail closed after the request circuit breaker trips. Keep
-                # serving the last successful snapshot, but never contact
-                # HAFAS again until the process is restarted.
-                return list(self._vehicles), False, True
             snapshot_age = (
                 now - self._updated_monotonic
                 if self._vehicles and self._updated_monotonic
@@ -129,135 +122,6 @@ class SnapshotCache:
         }
 
 
-class RequestSecurityMonitor:
-    """Small fail-closed monitor for an intentionally short public demo."""
-
-    def __init__(
-        self,
-        window_seconds: float = 60.0,
-        max_requests: int = 600,
-        max_forced_refreshes: int = 60,
-        max_suspicious_requests: int = 40,
-    ) -> None:
-        self.window_seconds = window_seconds
-        self.max_requests = max_requests
-        self.max_forced_refreshes = max_forced_refreshes
-        self.max_suspicious_requests = max_suspicious_requests
-        self._requests: deque[float] = deque()
-        self._forced_refreshes: deque[float] = deque()
-        self._suspicious_requests: deque[float] = deque()
-        self._lock = threading.Lock()
-        self._tripped = False
-        self.last_trip_reason: str | None = None
-
-    @staticmethod
-    def _expected_path(path: str) -> bool:
-        return path in {
-            "/",
-            "/index.html",
-            "/app.js",
-            "/styles.css",
-            "/favicon.ico",
-            "/api/status",
-            "/api/config",
-            "/api/network",
-            "/api/vehicles",
-        }
-
-    @staticmethod
-    def _prune(events: deque[float], cutoff: float) -> None:
-        while events and events[0] < cutoff:
-            events.popleft()
-
-    def record(self, method: str, raw_path: str) -> str | None:
-        now = time.monotonic()
-        parsed = urlsplit(raw_path)
-        query = parse_qs(parsed.query)
-        forced_refresh = (
-            method == "GET"
-            and parsed.path == "/api/vehicles"
-            and query.get("fresh") == ["1"]
-        )
-        suspicious = (
-            method not in {"GET", "HEAD"}
-            or not self._expected_path(parsed.path)
-        )
-
-        with self._lock:
-            cutoff = now - self.window_seconds
-            for events in (
-                self._requests,
-                self._forced_refreshes,
-                self._suspicious_requests,
-            ):
-                self._prune(events, cutoff)
-
-            self._requests.append(now)
-            if forced_refresh:
-                self._forced_refreshes.append(now)
-            if suspicious:
-                self._suspicious_requests.append(now)
-
-            if self._tripped:
-                return None
-
-            reason = None
-            if len(self._requests) > self.max_requests:
-                reason = (
-                    f"request-rate>{self.max_requests}/{int(self.window_seconds)}s"
-                )
-            elif len(self._forced_refreshes) > self.max_forced_refreshes:
-                reason = (
-                    "forced-refresh-rate>"
-                    f"{self.max_forced_refreshes}/{int(self.window_seconds)}s"
-                )
-            elif len(self._suspicious_requests) > self.max_suspicious_requests:
-                reason = (
-                    "suspicious-request-rate>"
-                    f"{self.max_suspicious_requests}/{int(self.window_seconds)}s"
-                )
-
-            if reason is None:
-                return None
-
-            self._tripped = True
-            self.last_trip_reason = reason
-            return reason
-
-    @property
-    def tripped(self) -> bool:
-        with self._lock:
-            return self._tripped
-
-    def diagnostics(self) -> dict[str, object]:
-        with self._lock:
-            return {
-                "tripped": self._tripped,
-                "last_trip_reason": self.last_trip_reason,
-                "window_seconds": self.window_seconds,
-                "max_requests": self.max_requests,
-                "max_forced_refreshes": self.max_forced_refreshes,
-                "max_suspicious_requests": self.max_suspicious_requests,
-            }
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-
-    try:
-        value = int(raw)
-    except ValueError:
-        print(
-            f"[cologne-tram-live-map] Ignoring invalid {name}={raw!r}; "
-            f"using {default}."
-        )
-        return default
-
-    return max(1, value)
-
-
 def _build_access_logger() -> logging.Logger:
     default_path = (
         Path.home()
@@ -316,24 +180,7 @@ CACHE = SnapshotCache(
     min_upstream_refresh_seconds=10.0,
 )
 NETWORK = NetworkCache()
-SECURITY_MONITOR = RequestSecurityMonitor(
-    max_requests=_env_int("COLOGNE_TRAM_SECURITY_MAX_REQUESTS", 600),
-    max_forced_refreshes=_env_int(
-        "COLOGNE_TRAM_SECURITY_MAX_FORCED_REFRESHES",
-        60,
-    ),
-    max_suspicious_requests=_env_int(
-        "COLOGNE_TRAM_SECURITY_MAX_SUSPICIOUS_REQUESTS",
-        40,
-    ),
-)
 ACCESS_LOGGER = _build_access_logger()
-SECURITY_TRIP_FILE = Path(
-    os.environ.get(
-        "COLOGNE_TRAM_SECURITY_TRIP_FILE",
-        "/tmp/cologne-tram-live-map-security-trip",
-    )
-)
 
 
 class CologneTramRequestHandler(SimpleHTTPRequestHandler):
@@ -357,26 +204,6 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _record_request_security(self) -> None:
-        reason = SECURITY_MONITOR.record(self.command, self.path)
-        if reason is None:
-            return
-
-        event = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event": "circuit_breaker_trip",
-            "reason": reason,
-        }
-        line = json.dumps(event, ensure_ascii=False)
-        print(f"[SECURITY] {line}")
-
-        try:
-            SECURITY_TRIP_FILE.write_text(line + "\n", encoding="utf-8")
-        except OSError as exc:
-            print(
-                "[SECURITY] Failed to write trip sentinel: "
-                f"{exc!r}"
-            )
 
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
@@ -389,17 +216,13 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
                 {
                     "status": "ok" if configured else "misconfigured",
                     "live_provider_configured": configured,
-                    "circuit_breaker": SECURITY_MONITOR.diagnostics(),
                 },
                 HTTPStatus.OK if configured else HTTPStatus.SERVICE_UNAVAILABLE,
             )
             return
 
-        self._record_request_security()
-        allow_upstream = not SECURITY_MONITOR.tripped
-
         if path == "/api/status":
-            vehicles, live, cache_hit = CACHE.get(allow_upstream=allow_upstream)
+            vehicles, live, cache_hit = CACHE.get()
             updated_at = vehicles[0].observed_at if vehicles else None
             diagnostics = CACHE.diagnostics()
             self._send_json(
@@ -413,7 +236,6 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
                     "min_upstream_refresh_seconds": CACHE.min_upstream_refresh_seconds,
                     "cache_hit": cache_hit,
                     "diagnostics": diagnostics,
-                    "circuit_breaker": SECURITY_MONITOR.diagnostics(),
                     "last_error": CACHE.last_error,
                 }
             )
@@ -422,10 +244,7 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/vehicles":
             query = parse_qs(urlsplit(self.path).query)
             force_fresh = query.get("fresh") == ["1"]
-            vehicles, live, cache_hit = CACHE.get(
-                force=force_fresh,
-                allow_upstream=allow_upstream,
-            )
+            vehicles, live, cache_hit = CACHE.get(force=force_fresh)
             updated_at = vehicles[0].observed_at if vehicles else None
             diagnostics = CACHE.diagnostics()
             self._send_json(
@@ -438,7 +257,6 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
                     "min_upstream_refresh_seconds": CACHE.min_upstream_refresh_seconds,
                     "cache_hit": cache_hit,
                     "diagnostics": diagnostics,
-                    "circuit_breaker": SECURITY_MONITOR.diagnostics(),
                     "last_error": CACHE.last_error,
                 },
                 HTTPStatus.OK if vehicles else HTTPStatus.SERVICE_UNAVAILABLE,
@@ -481,11 +299,9 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_HEAD(self) -> None:
-        self._record_request_security()
         super().do_HEAD()
 
     def _reject_unsupported_method(self) -> None:
-        self._record_request_security()
         self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
 
     do_POST = _reject_unsupported_method
