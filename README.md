@@ -33,32 +33,27 @@ Longer term, the same core could support a PWA or native mobile app once an offi
 
 ## Architecture
 
-```text
-VRS GTFS static
-  routes / trips / shapes / stops
-              |
-              v
-        /api/network
-              |
-              +------------------+
-                                 v
-                           browser map
-                                 ^
-              +------------------+
-              |
-HAFAS JourneyGeoPos
-              |
-              v
-       normalized vehicles
-              |
-              v
-        15 s snapshot cache
-              |
-              v
-        /api/vehicles
+```mermaid
+flowchart LR
+    subgraph static["Static network"]
+        GTFS["VRS GTFS<br/>routes · shapes · stops"]
+        NETWORK["/api/network"]
+        GTFS --> NETWORK
+    end
+
+    subgraph live["Live operations"]
+        HAFAS["HAFAS JourneyGeoPos"]
+        NORMALIZE["normalize vehicles"]
+        CACHE["15 s snapshot cache"]
+        VEHICLES["/api/vehicles"]
+        HAFAS --> NORMALIZE --> CACHE --> VEHICLES
+    end
+
+    NETWORK --> MAP["Browser map<br/>draw network · interpolate motion · snap to track"]
+    VEHICLES --> MAP
 ```
 
-GTFS provides the static infrastructure. HAFAS provides the current operational vehicle state.
+In short: **GTFS tells the app where the network is; HAFAS tells it where vehicles currently are.** The browser combines both and performs the visual interpolation and track alignment.
 
 ## Run locally
 
@@ -91,6 +86,38 @@ tailscale serve --bg http://127.0.0.1:8000
 ```
 
 Binding to `0.0.0.0` is only necessary for direct LAN access and should be combined with appropriate firewall/network restrictions.
+
+## Deploy on Railway
+
+The repository is prepared for a small persistent Railway service:
+
+- `railpack.json` supplies the start command;
+- `runtime.txt` pins Python 3.11;
+- the server automatically listens on Railway's injected `PORT` and binds to `0.0.0.0` only in that environment;
+- `GET /healthz` is a provider-config readiness check that does **not** contact HAFAS;
+- the request circuit breaker fails closed: once tripped, no further HAFAS requests are made until the service restarts.
+
+Recommended setup:
+
+1. Create a Railway project and connect `vinyz32/cologne-tram-live-map` on branch `main`.
+2. Add the secret variable `COLOGNE_TRAM_HAFAS_AID`.
+3. Set the service healthcheck path to `/healthz`.
+4. Keep the service at **one replica**. Each replica has its own in-memory cache; multiple replicas would multiply upstream HAFAS polling.
+5. Keep the service persistent (no serverless sleep) if continuous availability is desired.
+6. Generate a Railway public domain after the first healthy deployment.
+7. Enable GitHub autodeploys for `main` and configure Railway usage alerts / a hard spending limit.
+
+The public-demo safety defaults use a 60-second request window:
+
+| Setting | Default |
+| --- | ---: |
+| all requests | 600 |
+| forced refreshes | 60 |
+| suspicious requests | 40 |
+
+When a threshold is exceeded, the circuit breaker trips permanently for that process. Existing cached vehicle data can still be returned, but the application stops contacting HAFAS until Railway restarts or redeploys the service.
+
+The thresholds can be changed with the optional environment variables documented in `.env.example`.
 
 ## API
 
@@ -132,11 +159,11 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the external data and s
 
 ## Next
 
-1. Run the app continuously on the Raspberry Pi.
-2. Add Tailscale for permanent private phone access.
+1. Deploy the portfolio demo as a single persistent Railway service.
+2. Monitor Railway resource usage and upstream request behavior.
 3. Observe long-running vehicle continuity and HAFAS edge cases.
 4. Tune the UI for the final dedicated display.
-5. Evaluate an official realtime feed before any public/commercial release.
+5. Evaluate an official realtime feed before any broader public/commercial release.
 
 ## Public repository notes
 
