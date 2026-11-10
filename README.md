@@ -29,9 +29,7 @@ flowchart LR
 ```
 
 **GTFS defines where the network is; HAFAS supplies the current vehicle state.**  
-The Python backend normalizes and caches both sides, then exposes processed data to the browser through small application endpoints. The frontend combines them to draw the network, interpolate movement between snapshots and align vehicles with plausible track geometry.
-
-This split keeps the browser lightweight and prevents every page refresh from turning into a new upstream request.
+The backend normalizes and caches both sources, then serves processed data to the browser through small application endpoints. The frontend combines both streams to draw the network, interpolate movement between snapshots and align vehicles with plausible track geometry.
 
 ## Features
 
@@ -40,15 +38,7 @@ This split keeps the browser lightweight and prevents every page refresh from tu
 - track snapping and stop-aware interpolation
 - line filters and Cologne district views
 - responsive desktop/mobile layout
-- compact diagnostics for live state and snapshot freshness
-
-## Runtime and safety
-
-Live HAFAS data is cached server-side for 15 seconds. Forced refreshes are also rate-limited.
-
-A fail-closed circuit breaker monitors request volume. If a configured threshold is exceeded, the application continues serving the latest cached snapshot but stops contacting HAFAS until the process is restarted.
-
-The HAFAS access identifier is supplied through `COLOGNE_TRAM_HAFAS_AID` and is never stored in the repository.
+- compact live-state diagnostics
 
 ## Run locally
 
@@ -70,9 +60,7 @@ Open `http://127.0.0.1:8000`.
 
 ## Deployment
 
-The public demo runs as a single Railway service. The app automatically uses Railway's injected `PORT`, provides `/healthz` for readiness checks and keeps only one replica to avoid multiplying upstream polling.
-
-The same application can also run continuously as a systemd service on a Raspberry Pi.
+The public demo is deployed as a small Railway service.
 
 ## Data sources
 
