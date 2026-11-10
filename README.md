@@ -91,8 +91,9 @@ Binding to `0.0.0.0` is only necessary for direct LAN access and should be combi
 
 The repository is prepared for a small persistent Railway service:
 
-- `railpack.json` supplies the start command;
+- `railpack.json` supplies the application start command;
 - `runtime.txt` pins Python 3.11;
+- `.railway/railway.ts` contains the current Railway Infrastructure-as-Code definition for a single replica, the start command and `/healthz` healthcheck;
 - the server automatically listens on Railway's injected `PORT` and binds to `0.0.0.0` only in that environment;
 - `GET /healthz` is a provider-config readiness check that does **not** contact HAFAS;
 - the request circuit breaker fails closed: once tripped, no further HAFAS requests are made until the service restarts.
@@ -101,11 +102,11 @@ Recommended setup:
 
 1. Create a Railway project and connect `vinyz32/cologne-tram-live-map` on branch `main`.
 2. Add the secret variable `COLOGNE_TRAM_HAFAS_AID`.
-3. Set the service healthcheck path to `/healthz`.
-4. Keep the service at **one replica**. Each replica has its own in-memory cache; multiple replicas would multiply upstream HAFAS polling.
-5. Keep the service persistent (no serverless sleep) if continuous availability is desired.
-6. Generate a Railway public domain after the first healthy deployment.
-7. Enable GitHub autodeploys for `main` and configure Railway usage alerts / a hard spending limit.
+3. Keep the service at **one replica**. Each replica has its own in-memory cache; multiple replicas would multiply upstream HAFAS polling.
+4. Generate a Railway public domain after the first healthy deployment.
+5. Enable GitHub autodeploys for `main` and configure Railway usage alerts / a hard spending limit.
+
+For CLI-managed Railway infrastructure, the checked-in `.railway/railway.ts` can be applied with Railway's current Infrastructure-as-Code workflow. The HAFAS access identifier remains a Railway secret and is intentionally not stored in the repository.
 
 The public-demo safety defaults use a 60-second request window:
 
