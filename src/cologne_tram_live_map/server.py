@@ -41,10 +41,19 @@ class SnapshotCache:
         self.last_matched_vehicle_count: int | None = None
         self.fetch_count = 0
 
-    def get(self, force: bool = False) -> tuple[list[Vehicle], bool, bool]:
+    def get(
+        self,
+        force: bool = False,
+        allow_upstream: bool = True,
+    ) -> tuple[list[Vehicle], bool, bool]:
         now = time.monotonic()
 
         with self._lock:
+            if not allow_upstream:
+                # Fail closed after the request circuit breaker trips. Keep
+                # serving the last successful snapshot, but never contact
+                # HAFAS again until the process is restarted.
+                return list(self._vehicles), False, True
             snapshot_age = (
                 now - self._updated_monotonic
                 if self._vehicles and self._updated_monotonic
@@ -215,6 +224,39 @@ class RequestSecurityMonitor:
             self.last_trip_reason = reason
             return reason
 
+    @property
+    def tripped(self) -> bool:
+        with self._lock:
+            return self._tripped
+
+    def diagnostics(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "tripped": self._tripped,
+                "last_trip_reason": self.last_trip_reason,
+                "window_seconds": self.window_seconds,
+                "max_requests": self.max_requests,
+                "max_forced_refreshes": self.max_forced_refreshes,
+                "max_suspicious_requests": self.max_suspicious_requests,
+            }
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError:
+        print(
+            f"[cologne-tram-live-map] Ignoring invalid {name}={raw!r}; "
+            f"using {default}."
+        )
+        return default
+
+    return max(1, value)
+
 
 def _build_access_logger() -> logging.Logger:
     default_path = (
@@ -274,7 +316,17 @@ CACHE = SnapshotCache(
     min_upstream_refresh_seconds=10.0,
 )
 NETWORK = NetworkCache()
-SECURITY_MONITOR = RequestSecurityMonitor()
+SECURITY_MONITOR = RequestSecurityMonitor(
+    max_requests=_env_int("COLOGNE_TRAM_SECURITY_MAX_REQUESTS", 600),
+    max_forced_refreshes=_env_int(
+        "COLOGNE_TRAM_SECURITY_MAX_FORCED_REFRESHES",
+        60,
+    ),
+    max_suspicious_requests=_env_int(
+        "COLOGNE_TRAM_SECURITY_MAX_SUSPICIOUS_REQUESTS",
+        40,
+    ),
+)
 ACCESS_LOGGER = _build_access_logger()
 SECURITY_TRIP_FILE = Path(
     os.environ.get(
@@ -327,10 +379,27 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
             )
 
     def do_GET(self) -> None:
-        self._record_request_security()
+        path = urlsplit(self.path).path
 
-        if self.path == "/api/status":
-            vehicles, live, cache_hit = CACHE.get()
+        # Railway (and other platforms) can probe this endpoint without
+        # triggering HAFAS or contributing to the public-request breaker.
+        if path == "/healthz":
+            configured = bool(os.environ.get("COLOGNE_TRAM_HAFAS_AID", "").strip())
+            self._send_json(
+                {
+                    "status": "ok" if configured else "misconfigured",
+                    "live_provider_configured": configured,
+                    "circuit_breaker": SECURITY_MONITOR.diagnostics(),
+                },
+                HTTPStatus.OK if configured else HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+
+        self._record_request_security()
+        allow_upstream = not SECURITY_MONITOR.tripped
+
+        if path == "/api/status":
+            vehicles, live, cache_hit = CACHE.get(allow_upstream=allow_upstream)
             updated_at = vehicles[0].observed_at if vehicles else None
             diagnostics = CACHE.diagnostics()
             self._send_json(
@@ -344,14 +413,19 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
                     "min_upstream_refresh_seconds": CACHE.min_upstream_refresh_seconds,
                     "cache_hit": cache_hit,
                     "diagnostics": diagnostics,
+                    "circuit_breaker": SECURITY_MONITOR.diagnostics(),
                     "last_error": CACHE.last_error,
                 }
             )
             return
 
-        if self.path.startswith("/api/vehicles"):
-            force_fresh = "fresh=1" in self.path
-            vehicles, live, cache_hit = CACHE.get(force=force_fresh)
+        if path == "/api/vehicles":
+            query = parse_qs(urlsplit(self.path).query)
+            force_fresh = query.get("fresh") == ["1"]
+            vehicles, live, cache_hit = CACHE.get(
+                force=force_fresh,
+                allow_upstream=allow_upstream,
+            )
             updated_at = vehicles[0].observed_at if vehicles else None
             diagnostics = CACHE.diagnostics()
             self._send_json(
@@ -364,13 +438,14 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
                     "min_upstream_refresh_seconds": CACHE.min_upstream_refresh_seconds,
                     "cache_hit": cache_hit,
                     "diagnostics": diagnostics,
+                    "circuit_breaker": SECURITY_MONITOR.diagnostics(),
                     "last_error": CACHE.last_error,
                 },
                 HTTPStatus.OK if vehicles else HTTPStatus.SERVICE_UNAVAILABLE,
             )
             return
 
-        if self.path == "/api/config":
+        if path == "/api/config":
             self._send_json(
                 {
                     "display_mode": "interactive",
@@ -380,7 +455,7 @@ class CologneTramRequestHandler(SimpleHTTPRequestHandler):
             return
 
 
-        if self.path == "/api/network":
+        if path == "/api/network":
             network = NETWORK.get()
 
             if network is None:
@@ -456,10 +531,31 @@ def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
             server.server_close()
 
 
+def _default_host() -> str:
+    configured = os.environ.get("HOST", "").strip()
+    if configured:
+        return configured
+
+    # Railway injects PORT. Binding to all interfaces is required inside its
+    # container, while local runs remain localhost-only by default.
+    return "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
+
+
+def _default_port() -> int:
+    raw = os.environ.get("PORT", "").strip()
+    if not raw:
+        return 8000
+
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(f"Invalid PORT environment variable: {raw!r}") from None
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run Cologne Tram Live Map locally.")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
+    parser = argparse.ArgumentParser(description="Run Cologne Tram Live Map.")
+    parser.add_argument("--host", default=_default_host())
+    parser.add_argument("--port", type=int, default=_default_port())
     return parser
 
 
