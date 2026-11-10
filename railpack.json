@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.railpack.com",
   "deploy": {
-    "startCommand": "cologne-tram-live-map"
+    "startCommand": "PYTHONPATH=src python -m cologne_tram_live_map.server"
   }
 }
