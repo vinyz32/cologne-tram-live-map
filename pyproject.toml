@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cologne-tram-live-map"
+version = "0.1.0"
+description = "Minimal live map for estimated tram positions in Cologne."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gtfs-realtime-bindings>=1.0.0,<2",
+]
+
+[project.scripts]
+cologne-tram-live-map = "cologne_tram_live_map.server:main"
+cologne-tram-gtfs-probe = "cologne_tram_live_map.gtfs_rt:main"
+cologne-tram-hafas-probe = "cologne_tram_live_map.hafas:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cologne_tram_live_map = ["static/*"]

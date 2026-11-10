@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cologne Tram Live Map</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/styles.css?v=20260927-24">
+</head>
+<body>
+  <main class="display">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">COLOGNE / TRAM</p>
+        <h1>live map</h1>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="view-picker">
+          <button
+            class="view-toggle"
+            id="view-toggle"
+            type="button"
+            aria-expanded="false"
+          >
+            Köln
+          </button>
+          <div class="view-panel" id="view-panel" hidden></div>
+        </div>
+
+        <div class="line-filter">
+          <button
+            class="lines-toggle"
+            id="lines-toggle"
+            type="button"
+            aria-expanded="false"
+          >
+            lines
+          </button>
+          <div class="line-filter-panel" id="line-filter-panel" hidden></div>
+        </div>
+
+        <button
+          class="mode-toggle"
+          id="mode-toggle"
+          type="button"
+          aria-pressed="false"
+          title="Kiosk-Modus an- oder ausschalten"
+        >
+          kiosk: off
+        </button>
+        <div class="status-monitor">
+          <button
+            class="status"
+            id="status"
+            type="button"
+            aria-expanded="false"
+            aria-controls="status-panel"
+          >connecting…</button>
+          <div class="status-panel" id="status-panel" hidden>
+            <div><span>source</span><strong id="diag-source">–</strong></div>
+            <div><span>age</span><strong id="diag-age">–</strong></div>
+            <div><span>fetch</span><strong id="diag-fetch">–</strong></div>
+            <div><span>changed</span><strong id="diag-changed">–</strong></div>
+            <div><span>motion</span><strong id="diag-motion">–</strong></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="map-shell is-loading">
+      <div id="map" aria-label="Cologne Tram live map"></div>
+
+      <div class="loading-screen" id="loading-screen" aria-live="polite">
+        <div class="loading-console">
+          <span class="loading-prefix">&gt;</span>
+          <span id="loading-text"><span class="loading-tail">wecke das Kölner Stellwerk…<span class="loading-cursor">_</span></span></span>
+        </div>
+      </div>
+
+      <div class="map-meta">
+        <strong id="vehicle-count">–</strong>
+        <span>vehicles</span>
+      </div>
+    </section>
+
+    <footer>
+      <span>HAFAS / VRS GTFS</span>
+      <span id="clock"></span>
+    </footer>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
+  <script src="/app.js?v=20261110-32"></script>
+</body>
+</html>
