@@ -100,7 +100,7 @@ def post_json(payload: dict[str, Any], timeout: float = 20.0) -> dict[str, Any]:
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "cologne-tram-live-map/0.1 (+private hobby project)",
+            "User-Agent": "cologne-tram-live-map/0.1 (+non-commercial hobby project)",
         },
         method="POST",
     )
