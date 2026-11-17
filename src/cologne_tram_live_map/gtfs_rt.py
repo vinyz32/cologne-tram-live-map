@@ -41,7 +41,7 @@ def fetch_feed(url: str = DEFAULT_FEED_URL, timeout: float = 30.0) -> bytes:
     request = Request(
         url,
         headers={
-            "User-Agent": "cologne-tram-live-map/0.1 (+private hobby project)",
+            "User-Agent": "cologne-tram-live-map/0.1 (+non-commercial hobby project)",
             "Accept": "application/x-protobuf, application/octet-stream, */*",
         },
     )
